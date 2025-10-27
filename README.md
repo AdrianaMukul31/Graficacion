@@ -93,7 +93,8 @@ Trigger Success: Enter a valid email and password, then press Login. The bear ce
 ---
 
 ## 🎬 Demo
-![Login Demo](assets/demo.gif)  
+
+![App Demo GIF](./demo/demo.gif)
 
 ---
 🎓 Academic Information
