@@ -1,8 +1,5 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:rive/rive.dart';
-// 2.3 implementar librería timer
 import 'dart:async';
 
 class LoginScreen extends StatefulWidget {
@@ -13,274 +10,390 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // Declaramos las variables necesarias
-  late TextEditingController _userPasswordController;
-  bool _passwordVisible = false;
-  // Cerebro de la lógica de las animaciones
+  bool _obscurePassword = true;
+  bool _isLoading = false;
+
   StateMachineController? controller;
-  // SMI State Machine Input
-  SMIBool? isCheking;
+  SMIBool? isChecking;
   SMIBool? isHandsUp;
-  SMITrigger? trigFail;
   SMITrigger? trigSuccess;
-  // 2.1 Variable de recorrido de la mirada
+  SMITrigger? trigFail;
   SMINumber? numLook;
 
-  // Focos email y password FocusNode paso 1.1
   final emailFocus = FocusNode();
-  final passwordFocus = FocusNode();
-  // 3.2 Crear timer para detener la animación al dejar de teclear email
-  Timer? _typingDebouncer;
-
-  //4.1 Controller: te dice exactamente lo que el usuario escribio
-  final emailCtrl = TextEditingController(); //controller(Ctrl)
-  //password 
+  final passFocus = FocusNode();
+  Timer? _typingDebounce;
+  final emailCtrl = TextEditingController();
   final passCtrl = TextEditingController();
-  //4.2 Errores para mostrar en la UI
-  String? emailError;
-  String? passError;
-  // 4.3 Validadores de email y password
+
+  // VARIABLES PARA CHECKLIST DINÁMICO Y ERROR ÚNICO
+  String? _currentError;
+  bool _isEmailValid = false;
+  bool _isPasswordValid = false;
+
+  // VALIDADORES
   bool isValidEmail(String email) {
+    if (email.isEmpty) return false;
     final re = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
     return re.hasMatch(email);
   }
 
   bool isValidPassword(String pass) {
-    // mínimo 8, una mayúscula, una minúscula, un dígito y un especial
+    if (pass.isEmpty) return false;
     final re = RegExp(
       r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$',
     );
     return re.hasMatch(pass);
   }
 
-  //4.4 Validar al presionar el botón
-  void _onLogin(){
-    final email = emailCtrl.text.trim(); //trim elimina espacios en blanco (trim=recortar)
-    final pass = passCtrl.text.trim();
-    //Recalcular errores
-    final eError =isValidEmail(email) ? null : 'Email no válido';
-    final pError = isValidPassword(pass) ? null : 
-    'Minimo 8 caracteres, 1 mayúscula, 1 minúscula,1 dígito y 1 caracter especial';
-    //para avisar que hubo un cambio en los errores
+  // ACTUALIZAR VALIDACIÓN EN TIEMPO REAL
+  void _updateValidation() {
+    final email = emailCtrl.text.trim();
+    final pass = passCtrl.text;
+
+    final wasEmailValid = _isEmailValid;
+    final wasPasswordValid = _isPasswordValid;
+
+    _isEmailValid = isValidEmail(email);
+    _isPasswordValid = isValidPassword(pass);
+
+    // SOLO MOSTRAR EL PRIMER ERROR QUE APLICA
+    String? newError;
+    if (email.isNotEmpty && !_isEmailValid) {
+      newError = "Email inválido";
+    } else if (pass.isNotEmpty && !_isPasswordValid) {
+      newError =
+          "Mínimo 8 caracteres, 1 Mayúscula, 1 Número, 1 Minuscula y 1 Caracter Especial";
+    } else {
+      newError = null;
+    }
+
+    // Solo actualizar si hay cambios
+    if (newError != _currentError ||
+        wasEmailValid != _isEmailValid ||
+        wasPasswordValid != _isPasswordValid) {
+      if (mounted) {
+        setState(() {
+          _currentError = newError;
+        });
+      }
+    }
+  }
+
+  // CORRECCIÓN DEL "DOBLE TAP"
+  Future<void> _onLogin() async {
+    if (_isLoading) return;
+
+    // 1. NORMALIZAR ESTADO INMEDIATAMENTE
+    FocusScope.of(context).unfocus();
+    _typingDebounce?.cancel();
+    isChecking?.change(false);
+    isHandsUp?.change(false);
+    numLook?.value = 50.0;
+
+    // 2. ESPERAR UN FRAME
+    await Future.delayed(Duration.zero);
+
+    // 3. ACTUALIZAR VALIDACIÓN FINAL ANTES DE MOSTRAR CARGA
+    _updateValidation();
+
+    // 4. ACTIVAR ESTADO DE CARGA
     setState(() {
-      emailError = eError;
-      passError = pError;
+      _isLoading = true;
     });
 
-    //4.6 Cerrar teclado y bajar las manos al presionar el botón
-    FocusScope.of(context).unfocus();
-    _typingDebouncer?.cancel(); // cancelar timer si está activo
-    isCheking?.change(false); //mirada neutral
-    isHandsUp?.change(false); //manos abajo
-    numLook?.value = 50.0; // mirada al frente al momento de liberar el teclado
-    //4.7 activar triggers
-    if(eError == null && pError == null){ //== validar
+    // 5. VALIDACIÓN FINAL
+    final isEmailValid = isValidEmail(emailCtrl.text.trim());
+    final isPasswordValid = isValidPassword(passCtrl.text);
+
+    // Simular envío (~1 segundo)
+    await Future.delayed(const Duration(seconds: 1));
+
+    if (!mounted) return;
+
+    // 6. DISPARAR TRIGGERS
+    if (isEmailValid && isPasswordValid) {
       trigSuccess?.fire();
     } else {
       trigFail?.fire();
     }
 
+    // 7. DESACTIVAR CARGA
+    setState(() {
+      _isLoading = false;
+    });
   }
-  
-  // 2.1Listeners oyentes
 
   @override
   void initState() {
     super.initState();
-    _userPasswordController = TextEditingController();
-    _passwordVisible = false;
+
+    // Listeners para campos
     emailFocus.addListener(() {
       if (emailFocus.hasFocus) {
-        isHandsUp?.change(false); //manos abajo email
-        // Mirada neutral al enfocar email
+        isHandsUp?.change(false);
         numLook?.value = 50.0;
-        isHandsUp?.change(false); //manos abajo email
+        isChecking?.change(true);
+      } else {
+        isChecking?.change(false);
+        _updateValidation(); // Actualizar validación al perder foco
       }
     });
-    passwordFocus.addListener(() {
-      isHandsUp?.change(passwordFocus.hasFocus); //manos arriba password
+
+    passFocus.addListener(() {
+      isHandsUp?.change(passFocus.hasFocus && _obscurePassword);
+      isChecking?.change(false);
+      if (!passFocus.hasFocus) {
+        _updateValidation(); // Actualizar validación al perder foco
+      }
     });
+
+    // LISTENERS PARA VALIDACIÓN EN TIEMPO REAL
+    emailCtrl.addListener(_updateValidation);
+    passCtrl.addListener(_updateValidation);
+  }
+
+  @override
+  void dispose() {
+    emailFocus.dispose();
+    passFocus.dispose();
+    emailCtrl.dispose();
+    passCtrl.dispose();
+    _typingDebounce?.cancel();
+    controller?.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Consulta el tamaño de la pantalla
     final Size size = MediaQuery.of(context).size;
     return Scaffold(
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Column(
-            children: [
-              SizedBox(
-                width: size.width,
-                height: 200,
-                child: RiveAnimation.asset(
-                  'assets/animated_login_character.riv',
-                  stateMachines: ["Login Machine"],
-                  onInit: (artboard) {
-                    controller = StateMachineController.fromArtboard(
-                      artboard,
-                      "Login Machine",
-                    );
-                    // Verificar que inició bien
-                    if (controller == null) return;
-                    artboard.addController(controller!);
-                    isCheking = controller!.findSMI('isChecking');
-                    isHandsUp = controller!.findSMI('isHandsUp');
-                    trigSuccess = controller!.findSMI('trigSuccess');
-                    trigFail = controller!.findSMI('trigFail');
-                    // paso 2.3 enlazar la variable con la animación
-                    numLook = controller!.findSMI('numLook');
-                  }, // Qué es clamp?? en programación y en la vida
-                  // clamp: abrazadera retiene el valor dentro de un rango
-                ),
-              ),
-              const SizedBox(height: 10),
-              // Campo de texto email
-              TextField(
-                // llamado a los oyentes
-                focusNode: emailFocus,
-                //4.8 enlazar controlador al texfield
-                controller: emailCtrl,
-                onChanged: (value) {
-                    // estoy escribiendo
-                    isCheking!.change(true);
-                    // ajuste de limite 0 a 100
-                    // 80 es medida de calibración
-                    final look =
-                        (value.length / 80.0 * 100.0).clamp(0, 100).toDouble();
-                    numLook?.value = look;
-                    // Paso 3.3 Debounce: si vuelve a teclear, reinicia el timer
-                    _typingDebouncer?.cancel(); // cancela un timer existente
-                    _typingDebouncer = Timer(const Duration(seconds: 4), () {
-                      if (!mounted) {
-                        return; // si la pantalla se cierra
-                      } 
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                SizedBox(
+                  width: size.width,
+                  height: 200,
+                  child: RiveAnimation.asset(
+                    'assets/animated_login_character.riv',
+                    stateMachines: ["Login Machine"],
+                    onInit: (artboard) {
+                      controller = StateMachineController.fromArtboard(
+                        artboard,
+                        "Login Machine",
+                      );
+                      if (controller == null) return;
+                      artboard.addController(controller!);
 
-                      // Mirada neutral al dejar de teclear email
-                      isCheking?.change(false);
-                    });
-                  
-
-                  if (isCheking == null) return;
-                  // Activa el modo chismoso
-
-                  isCheking!.change(true);
-                },
-                textInputAction: TextInputAction.next,
-
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  //4.9 mostrar errores en la UI
-                  errorText: emailError,
-                  hintText: 'Email',
-                  labelText: 'Email',
-                  prefixIcon: const Icon(Icons.mail),
-                ),
-              ),
-              const SizedBox(height: 10),
-              // Campo de texto password
-              TextField(
-                focusNode: passwordFocus,
-                //4.8 enlazar controlador al texfield
-                controller: passCtrl,
-                onChanged: (value) {
-                  
-                  if (isCheking != null) {
-                    // No tapar los ojos al escribir mail
-                    //isHandsUp!.change(false);
-                  }
-                  if (isHandsUp == null) return;
-                  // Activa el modo chismoso
-                  isHandsUp!.change(true);
-                },
-                obscureText: !_passwordVisible,
-                decoration: InputDecoration(
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  errorText: passError,
-                  hintText: 'Password',
-                  labelText: 'Password',
-                  prefixIcon: const Icon(Icons.key),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _passwordVisible
-                          ? Icons.visibility_off
-                          : Icons.visibility,
-                      color: Colors.grey,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _passwordVisible = !_passwordVisible;
-                      });
+                      isChecking = controller!.findSMI<SMIBool>('isChecking');
+                      isHandsUp = controller!.findSMI<SMIBool>('isHandsUp');
+                      trigSuccess = controller!.findSMI<SMITrigger>(
+                        'trigSuccess',
+                      );
+                      trigFail = controller!.findSMI<SMITrigger>('trigFail');
+                      numLook = controller!.findSMI('numLook');
                     },
                   ),
                 ),
-              ),
-              SizedBox(height: 10),
-              // Texto forgot password
-              SizedBox(
-                width: size.width,
-                child: Text(
-                  'Forgot password?',
-                  textAlign: TextAlign.right,
-                  style: TextStyle(decoration: TextDecoration.underline),
+                const SizedBox(height: 10),
+
+                // CAMPO EMAIL
+                TextField(
+                  focusNode: emailFocus,
+                  controller: emailCtrl,
+                  onChanged: (value) {
+                    isChecking?.change(value.isNotEmpty);
+                    isHandsUp?.change(false);
+
+                    final look = (value.length / 120.0 * 100.0).clamp(
+                      0.0,
+                      100.0,
+                    );
+                    numLook?.value = look;
+
+                    _typingDebounce?.cancel();
+                    _typingDebounce = Timer(
+                      const Duration(milliseconds: 1500),
+                      () {
+                        if (!mounted) return;
+                        isChecking?.change(false);
+                        numLook?.value = 50.0;
+                      },
+                    );
+
+                    // ACTUALIZAR VALIDACIÓN EN TIEMPO REAL MIENTRAS SE ESCRIBE
+                    _updateValidation();
+                  },
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    hintText: "Email",
+                    prefixIcon: const Icon(Icons.mail),
+                    // SOLO muestra error si es email inválido (no vacío)
+                    errorText: emailCtrl.text.isNotEmpty && !_isEmailValid
+                        ? "Email inválido"
+                        : null,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
-              ),
-              // Botón login
-              SizedBox(height: 10),
-              // Botón estilo andriod, onPressed todos los botnones
-              MaterialButton(
-                minWidth: size.width,
-                height: 50,
-                color: Colors.redAccent,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                const SizedBox(height: 10),
+
+                // CAMPO PASSWORD
+                TextField(
+                  focusNode: passFocus,
+                  controller: passCtrl,
+                  onChanged: (value) {
+                    // ACTUALIZAR VALIDACIÓN EN TIEMPO REAL MIENTRAS SE ESCRIBE
+                    _updateValidation();
+                  },
+                  obscureText: _obscurePassword,
+                  decoration: InputDecoration(
+                    hintText: "Password",
+                    prefixIcon: const Icon(Icons.lock),
+                    // SOLO muestra error si hay contenido y es inválido
+                    errorText: passCtrl.text.isNotEmpty && !_isPasswordValid
+                        ? "Mínimo 8 caracteres, 1 Mayúscula, 1 Número, 1 Minuscula y 1 Caracter Especial"
+                        : null,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
+                        color: Colors.grey,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _obscurePassword = !_obscurePassword;
+                          isHandsUp?.change(
+                            _obscurePassword && passFocus.hasFocus,
+                          );
+                        });
+                      },
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
-                onPressed: _onLogin,
-                child: Text('Login', style: TextStyle(color: Colors.white)),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: size.width,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text("No tienes cuenta?"),
-                    TextButton(
-                      onPressed:(){},
-                      child: const Text(
-                        'Regístrate',
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold,
-                          decoration: TextDecoration.underline,
+                const SizedBox(height: 10),
+
+                // CHECKLIST DINÁMICO (AHORA SÍ REACCIONA EN VIVO)
+                Container(
+                  width: size.width,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildChecklistItem("Email válido", _isEmailValid),
+                      _buildChecklistItem(
+                        "Contraseña segura",
+                        _isPasswordValid,
+                      ),
+                    ],
+                  ),
+                ),
+
+                // MENSAJE DE ERROR ACTUAL (SOLO UNO)
+                if (_currentError != null)
+                  Container(
+                    width: size.width,
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Text(
+                      _currentError!,
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
+                    ),
+                  ),
+
+                SizedBox(
+                  width: size.width,
+                  child: const Text(
+                    "Forgot Password?",
+                    textAlign: TextAlign.right,
+                    style: TextStyle(decoration: TextDecoration.underline),
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // BOTÓN CON ESTADO DE CARGA
+                MaterialButton(
+                  minWidth: size.width,
+                  height: 50,
+                  color: Colors.purple,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  onPressed: _isLoading ? null : _onLogin,
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                      : const Text(
+                          "Login",
+                          style: TextStyle(color: Colors.white),
+                        ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: size.width,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text("Don't have an account?"),
+                      TextButton(
+                        onPressed: _isLoading ? null : () {},
+                        child: const Text(
+                          "Sign Up",
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                            decoration: TextDecoration.underline,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  @override
-  void dispose() {
-    emailCtrl.dispose();
-    passCtrl.dispose();
-    _userPasswordController.dispose();
-    emailFocus.dispose();
-    passwordFocus.dispose();
-    _typingDebouncer?.cancel();
-    super.dispose();
+  // WIDGET PARA ITEMS DEL CHECKLIST
+  Widget _buildChecklistItem(String text, bool isValid) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(
+            isValid ? Icons.check_circle : Icons.cancel,
+            color: isValid ? Colors.green : Colors.red,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: TextStyle(
+              color: isValid ? Colors.green : Colors.red,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
